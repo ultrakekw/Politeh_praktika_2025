@@ -292,4 +292,45 @@ def forecast_with_prophet(train_df, test_df, time_col='timestamp', target_col='v
         target_col: forecast['yhat'].values
     })
 
-#TODO forecast_with_fedot
+def forecast_with_fedot(train_df, test_df, time_col='timestamp', target_col='value', forecast_length=None, timeout=10):
+    """
+    Прогнозирование с помощью FEDOT AutoML.
+
+    Параметры:
+    - train_df (pd.DataFrame): обучающая выборка.
+    - test_df (pd.DataFrame): тестовая выборка.
+    - time_col (str): колонка с датами.
+    - target_col (str): колонка с числовыми значениями.
+    - forecast_length (int): длина прогноза (если None, берется длина test_df).
+    - timeout (int): время работы FEDOT в минутах.
+
+    Возвращает:
+    - pd.DataFrame с колонками [timestamp, value] с предсказанными значениями.
+    """
+
+    # Определение forecast_length, если не указано
+    if forecast_length is None:
+        forecast_length = len(test_df)
+
+    # Инициализация FEDOT AutoML
+    model = Fedot(
+        problem='ts_forecasting',
+        task_params=TsForecastingParams(forecast_length=forecast_length),
+        timeout=timeout
+    )
+
+    # Обучение модели
+    pipeline = model.fit(features=train_df[target_col].values)
+
+    pipeline.show()
+
+    # Прогноз
+    forecast = model.predict(features=train_df[target_col].values)
+
+    # Возврат результата в удобном виде
+    return pd.DataFrame({
+        time_col: test_df[time_col].values,
+        target_col: forecast
+    })
+
+
