@@ -17,7 +17,8 @@ from Functions import (
     forecast_with_sarima,
     forecast_with_catboost,
     forecast_with_prophet,
-    evaluate_forecast
+    evaluate_forecast,
+    forecast_with_fedot
 )
 
 # Настройка темы
@@ -41,10 +42,8 @@ class TimeSeriesApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # Левая область: график и характеристики
         self.plot_frame = ctk.CTkFrame(self)
         self.plot_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        # Делим plot_frame на 2 строки и 2 столбца
         self.plot_frame.grid_rowconfigure(0, weight=3)
         self.plot_frame.grid_rowconfigure(1, weight=1)
         self.plot_frame.grid_columnconfigure(0, weight=1)
@@ -143,10 +142,11 @@ class TimeSeriesApp(ctk.CTk):
         self._on_data_change()
         self._on_method_change(self.method_var.get())
 
-        self.help_btn.lift()
+        # Выдвинуть наверх кнопку, чтобы она не пряталась под фиджетами
+        self.help_btn.lift() 
 
     def _init_plot(self):
-        # График занимает всю первую строку, оба столбца
+        # график
         self.figure = Figure(figsize=(5,4), dpi=100)
         self.ax = self.figure.add_subplot(111)
         self.ax.set_title("Временной ряд")
@@ -155,10 +155,10 @@ class TimeSeriesApp(ctk.CTk):
         widget.grid(row=0, column=0, columnspan=2, sticky="nsew")
 
     def _init_stats(self):
-        # Статистики выборки (левая колонка, вторая строка)
+        # Статистики выборки
         self.sample_stats = ctk.CTkLabel(self.plot_frame, text="Статистики выборки:")
         self.sample_stats.grid(row=1, column=0, sticky="nw", padx=10, pady=5)
-        # Метрики качества (правая колонка, вторая строка)
+        # Метрики качества
         self.metrics = ctk.CTkLabel(self.plot_frame, text="Метрики качества:")
         self.metrics.grid(row=1, column=1, sticky="nw", padx=10, pady=5)
 
@@ -263,7 +263,6 @@ class TimeSeriesApp(ctk.CTk):
         help_win = Toplevel(self)
         help_win.title("Справка")
         help_win.geometry("600x400")
-        # Устанавливаем белый фон для окна и фрейма
         help_win.configure(bg="white")
         container = ctk.CTkFrame(help_win, fg_color="white")
         container.pack(fill="both", expand=True)
@@ -277,7 +276,7 @@ class TimeSeriesApp(ctk.CTk):
         style.configure("Treeview", background="white", fieldbackground="white")
         tree = ttk.Treeview(container)
         tree.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        # Заполняем оглавление
+        # Заполняем оглавление. Это так, просто для удобства я сделал
         sections = {}
         for i in range(1, 4):
             parent = tree.insert('', 'end', text=f"Раздел {i}")
@@ -305,10 +304,10 @@ class TimeSeriesApp(ctk.CTk):
             if not sel:
                 return
             item = sel[0]
-            title = tree.item(item, "text")  # например, "Раздел 1" или "Подраздел 2.3"
+            title = tree.item(item, "text") 
 
             # Формируем имя файла: удаляем пробелы и точки, добавляем .docx
-            # Например, "Раздел 1" → "Раздел1.docx", "Подраздел 2.3" → "Подраздел2_3.docx"
+            # Например, "Раздел 1" -> "Раздел1.docx", "Подраздел 2.3" -> "Подраздел2_3.docx" и т.д.
             safe_name = title.replace(" ", "").replace(".", "_")
             filename = f"./help_docs/{safe_name}.docx"
 
