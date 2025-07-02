@@ -44,7 +44,7 @@ def generate_timeseries(start_date, end_date, trend_coef=0.0, seasonality_amplit
 
     
 
-def split_train_test(df, time_col='timestamp', ratio=0.7):
+def split_train_test(df, ratio=0.7, time_col='timestamp'):
     """
     Делит DataFrame на обучающую и тестовую выборки по времени в заданной пропорции.
     
