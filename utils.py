@@ -3,8 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.ar_model import AutoReg
 from catboost import CatBoostRegressor
 from prophet import Prophet
+# from fedot import Fedot -- вроде как так надо его скачивать. Проверь, пожожда, потом, как работает
 
 def generate_timeseries(start_date, end_date, trend_coef=0.0, seasonality_amplitude=0.0, season_length=30, noise_level=1.0):
     """
