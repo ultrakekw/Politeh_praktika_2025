@@ -1,9 +1,12 @@
 import customtkinter as ctk
+import multiprocessing
+multiprocessing.freeze_support()
+multiprocessing.set_start_method('spawn', force=True)
 import pandas as pd
 import numpy as np
-from tkinter import filedialog
-from docx import Document
-from datetime import datetime
+import mammoth
+import threading
+from tkinterweb import HtmlFrame
 from tkinter import messagebox, Toplevel
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -42,6 +45,7 @@ class TimeSeriesApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
+        # Левая область: график и характеристики
         self.plot_frame = ctk.CTkFrame(self)
         self.plot_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         self.plot_frame.grid_rowconfigure(0, weight=3)
@@ -67,7 +71,7 @@ class TimeSeriesApp(ctk.CTk):
         self.data_var = ctk.StringVar(value="Сгенерированные данные")
         self.data_combo = ctk.CTkComboBox(
             data_frame,
-            values=["Сгенерированные данные", "Данные пользователя (выбор через проводник)"],
+            values=["Сгенерированные данные", "Курс австраллийского доллара с 2005 по 2025", "Температура в Хиросиме летом 1945"],
             variable=self.data_var
         )
         self.data_combo.pack(fill="x", padx=5, pady=5)
@@ -117,17 +121,8 @@ class TimeSeriesApp(ctk.CTk):
                 "Модель FEDOT AutoML"
             ],
             variable = self.method_var,
-            command = self._on_method_change
         )
         self.method_combo.pack(fill="x", padx=5, pady=5)
-
-        # Длина прогноза (только для FEDOT)
-        self.horizon_frame = ctk.CTkFrame(self.controls_frame)
-        self.horizon_frame.grid(row=4, column=0, sticky="ew", pady=(0,10))
-        ctk.CTkLabel(self.horizon_frame, text="Длина прогноза (шаги):").pack(anchor="w", padx=5, pady=(5,0))
-        self.horizon_var = ctk.StringVar(value="10")
-        self.horizon_entry = ctk.CTkEntry(self.horizon_frame, textvariable=self.horizon_var)
-        self.horizon_entry.pack(fill="x", padx=5, pady=5)
 
 
         # Кнопка запуска
@@ -136,17 +131,15 @@ class TimeSeriesApp(ctk.CTk):
             text="Запустить",
             command=self._on_run
         )
-        self.run_btn.grid(row=5, column=0, pady=5, sticky="ew", padx=5)
+        self.run_btn.grid(row=4, column=0, pady=5, sticky="ew", padx=5)
 
         # Скрыть параметры генерации если нужно
         self._on_data_change()
-        self._on_method_change(self.method_var.get())
 
-        # Выдвинуть наверх кнопку, чтобы она не пряталась под фиджетами
-        self.help_btn.lift() 
+        self.help_btn.lift()
 
     def _init_plot(self):
-        # график
+        # График занимает всю первую строку, оба столбца
         self.figure = Figure(figsize=(5,4), dpi=100)
         self.ax = self.figure.add_subplot(111)
         self.ax.set_title("Временной ряд")
@@ -155,10 +148,8 @@ class TimeSeriesApp(ctk.CTk):
         widget.grid(row=0, column=0, columnspan=2, sticky="nsew")
 
     def _init_stats(self):
-        # Статистики выборки
         self.sample_stats = ctk.CTkLabel(self.plot_frame, text="Статистики выборки:")
         self.sample_stats.grid(row=1, column=0, sticky="nw", padx=10, pady=5)
-        # Метрики качества
         self.metrics = ctk.CTkLabel(self.plot_frame, text="Метрики качества:")
         self.metrics.grid(row=1, column=1, sticky="nw", padx=10, pady=5)
 
@@ -168,11 +159,6 @@ class TimeSeriesApp(ctk.CTk):
         else:
             self.gen_params_frame.grid_remove()
 
-    def _on_method_change(self, selected_method):
-        if selected_method == "Модель FEDOT AutoML":
-            self.horizon_frame.grid()
-        else:
-            self.horizon_frame.grid_remove()
 
     def _on_run(self):
         try:
@@ -182,6 +168,14 @@ class TimeSeriesApp(ctk.CTk):
         except Exception:
             messagebox.showerror("Ошибка ввода", "Введите корректный процент разделения (0-100).")
             return
+
+        # Блокирование кнопки, чтобы пользователь не кликал не неё
+        self.run_btn.configure(state='disabled') 
+
+        # Запуск фонового потока
+        threading.Thread(target=self._background_run, daemon=True).start()
+
+    def _background_run(self):
         try:
             if self.data_var.get() == "Сгенерированные данные":
                 params = { 
@@ -193,38 +187,15 @@ class TimeSeriesApp(ctk.CTk):
                     'noise_level': float(self.gen_entries['Уровень шума (стандартное отклонение)'].get())
                 }
                 df = generate_timeseries(**params)
+            elif self.data_var.get() == "Курс австраллийского доллара с 2005 по 2025":
+                df = pd.read_csv("australlian_dollar_values.csv", parse_dates=["timestamp"])
             else:
-                path = filedialog.askopenfilename(
-                    title="Выбирите CSV-файл",
-                    filetypes=[("CSV файлы", "*.csv"), ("Все файлы", "*.*")])
-                if not path:
-                    return # отмена выбора произвольного набора данных
-                df = pd.read_csv(path, parse_dates=["timestamp"])
-        except Exception as e:
-            messagebox.showerror("Ошибка генерации или ввода данных", str(e))
-            return
-
-        if self.method_var.get() == "Модель FEDOT AutoML":
-            try:
-                horizon = int(self.horizon_var.get())
-                if horizon <= 0:
-                    raise ValueError("Должно быть > 0")
-            except Exception:
-                messagebox.showerror("Ошибка ввода", "Длина прогноза должна быть целым числом > 0.")
-                return
-        try:
+                df = pd.read_csv("hiroshima_summer_1945_temps.csv", parse_dates=["timestamp"])
+            
             stats = describe_timeseries(df)
-        except Exception as e:
-            messagebox.showerror("Ошибка описания ряда", str(e))
-            return
-        stats_text = "Статистики выборки:\n"
-        for k in ['mean','median','std','min','max','range','quantile_25','quantile_75']:
-            stats_text += f"- {k}: {stats.get(k, ''):.4f}\n"
-        self.sample_stats.configure(text=stats_text)
 
-        # Разделение и прогноз
-        try:
-            train_df, test_df = split_train_test(df, split_pct/100)
+
+            train_df, test_df = split_train_test(df, float(self.split_var.get())/100)
             method = self.method_var.get()
             if method == "Авторегрессия (statsmodels)":
                 pred_df = forecast_with_ar(train_df, test_df)
@@ -233,19 +204,30 @@ class TimeSeriesApp(ctk.CTk):
             elif method == "CatBoostRegressor с использованием лагов":
                 pred_df = forecast_with_catboost(train_df, test_df)
             elif method == "Модель FEDOT AutoML":
-                pred_df = forecast_with_fedot(train_df, test_df, forecast_length = horizon)
+                pred_df = forecast_with_fedot(train_df, test_df)
             else:
                 pred_df = forecast_with_prophet(train_df, test_df)
+
+            metrics = evaluate_forecast(df, pred_df)
+
+            # Передача результата в mainloop
+            self.after(0, lambda: self._update_ui(df, stats, pred_df, metrics))
+
         except Exception as e:
-            messagebox.showerror("Ошибка прогнозировани", str(e))
+            self.after(0, lambda: messagebox.showerror("Ошибка прогнозирования", str(e)))
             return
 
+        finally:
+            # Разблокирование кнопки
+            self.after(0, lambda: self.run_btn.configure(state='normal'))
 
-        # Оценка прогноза
-        try:
-            metrics = evaluate_forecast(df, pred_df)
-        except Exception as e:
-            messagebox.showerror("Ошибка оценки прогноза", str(e))
+    def _update_ui(self, df, stats, pred_df, metrics):
+        stats_text = "Статистики выборки:\n"
+        for k in ['mean','median','std','var','min','max','range','quantile_25','quantile_75']:
+            stats_text += f"- {k}: {stats.get(k, ''):.4f}\n"
+        self.sample_stats.configure(text=stats_text)
+       
+
         metrics_text = "Метрики качества:\n"
         for m in ['MAE','RMSE','MAPE','R2']:
             metrics_text += f"- {m}: {metrics.get(m, 0):.4f}\n"
@@ -260,72 +242,73 @@ class TimeSeriesApp(ctk.CTk):
         self.canvas.draw()
 
     def _open_help(self):
-        help_win = Toplevel(self)
+        # создаём окно справки
+        help_win = Toplevel()
         help_win.title("Справка")
-        help_win.geometry("600x400")
-        help_win.configure(bg="white")
-        container = ctk.CTkFrame(help_win, fg_color="white")
-        container.pack(fill="both", expand=True)
-        container.grid_columnconfigure(0, weight=1)
-        container.grid_columnconfigure(1, weight=3)
-        container.grid_rowconfigure(0, weight=1)
+        help_win.geometry("800x600")
+        help_win.rowconfigure(0, weight=1)
+        help_win.columnconfigure(0, weight=1)
+        
+        # контейнер для всего содержимого
+        help_container = ctk.CTkFrame(help_win)
+        help_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        help_container.rowconfigure(0, weight=1)
+        help_container.columnconfigure(0, weight=1)  # для дерева
+        help_container.columnconfigure(1, weight=3)  # для текста
+        
+        # 1) Дерево оглавления
+        tree = ttk.Treeview(help_container)
+        tree.grid(row=0, column=0, sticky="nsew", padx=(0,5))
+        
+        # 2) HTML-виджет для отображения содержимого .docx
+        html_frame = HtmlFrame(help_container)
+        html_frame.grid(row=0, column=1, sticky="nsew")
+        
+        # --- Заполнение оглавления ---
+        # Здесь указываем разделы, которые у вас лежат в отдельных .docx
+        tree.insert("", "end", text="Приветственное слово")
+        root2 = tree.insert("", "end", text="Модели анализа")
+        tree.insert(root2, "end", text="Авторегрессия")
+        tree.insert(root2, "end", text="SARIMA")
+        tree.insert(root2, "end", text="Градиентный бустинг")
+        tree.insert(root2, "end", text="Prophet")
+        tree.insert(root2, "end", text="FEDOT AutoML")
+        root3 = tree.insert("", "end", text="Характеристики выборки")
+        tree.insert(root3, "end", text="Дисперсия")
+        tree.insert(root3, "end", text="Медиана")
+        tree.insert(root3, "end", text="Стандартное отклонение")
+        root4 = tree.insert("", "end", text="Метрики качества прогноза")
+        tree.insert(root4, "end", text="MAE")
 
-        # Оглавление
-        style = ttk.Style(help_win)
-        style.theme_use('default')
-        style.configure("Treeview", background="white", fieldbackground="white")
-        tree = ttk.Treeview(container)
-        tree.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        # Заполняем оглавление. Это так, просто для удобства я сделал
-        sections = {}
-        for i in range(1, 4):
-            parent = tree.insert('', 'end', text=f"Раздел {i}")
-            for j in range(1, 4):
-                tree.insert(parent, 'end', text=f"Подраздел {i}.{j}")
-        # Удаляем возможный пустой корневой элемент
-        for iid in tree.get_children(''):
-            if not tree.item(iid, 'text'):
+        # удаляем пустые узлы, если нужно
+        for iid in tree.get_children(""):
+            if not tree.item(iid, "text"):
                 tree.delete(iid)
 
-        # Текстовое окно
-        text = ctk.CTkTextbox(
-            container,
-            fg_color="white",    # фон самой рамки
-            text_color="black",  # цвет текста
-            )
-        text.configure(state="disabled")
-        text.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-        # Отключаем редактирование
-        text.configure(state="disabled")
-
-        def on_tree_select(self, event):
-        # Получаем выбранный элемент
+        # Функция-обработчик выбора раздела
+        def on_tree_select(event):
             sel = tree.selection()
             if not sel:
                 return
-            item = sel[0]
-            title = tree.item(item, "text") 
-
-            # Формируем имя файла: удаляем пробелы и точки, добавляем .docx
-            # Например, "Раздел 1" -> "Раздел1.docx", "Подраздел 2.3" -> "Подраздел2_3.docx" и т.д.
-            safe_name = title.replace(" ", "").replace(".", "_")
-            filename = f"./help_docs/{safe_name}.docx"
+            title = tree.item(sel[0], "text")
+            safe   = title.replace(" ", "").replace(".", "_")
+            filename = f"{safe}.docx"
 
             try:
-                # Загружаем документ
-                doc = Document(filename)
-                content = "\n".join(para.text for para in doc.paragraphs)
+                with open(filename, "rb") as docx_file:
+                    result = mammoth.convert_to_html(
+                        docx_file,
+                        convert_image=mammoth.images.data_uri
+                    )
+                    html = result.value
             except Exception as e:
-                content = f"Не удалось загрузить {filename}:\n{e}"
+                html = f"<h2>Ошибка загрузки {filename}</h2><pre>{e}</pre>"
 
-            # Показываем в текстовом окне
-            text.configure(state="normal")
-            text.delete("0.0", "end")
-            text.insert("0.0", content)
-            text.configure(state="disabled")
+            html_frame.load_html(html)
 
+        # Привязываем событие
+        tree.bind("<<TreeviewSelect>>", on_tree_select)
 
-        tree.bind('<<TreeviewSelect>>', on_tree_select)
 
 
 if __name__ == "__main__":
